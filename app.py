@@ -18,7 +18,6 @@ MAP_FILE = "token_map.json"
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(RECV_DIR, exist_ok=True)
 
-
 def load_map():
     if os.path.exists(MAP_FILE):
         try:
@@ -27,20 +26,19 @@ def load_map():
             return {}
     return {}
 
-
 def save_map(m):
     json.dump(m, open(MAP_FILE, "w"))
-
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
 @app.route("/img/<token>.jpg")
 def serve_img(token):
-    return send_from_directory(IMG_DIR, f"{token}.jpg")
-
+    from flask import make_response
+    response = make_response(send_from_directory(IMG_DIR, f"{token}.jpg"))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 @app.route("/capture", methods=["POST"])
 def capture():
@@ -74,13 +72,11 @@ def capture():
 
     return jsonify({"ok": True})
 
-
-# start bot thread on import (Render pe gunicorn ke saath chalega)
+# start bot thread
 from bot import run_bot
 
 _bot_thread = threading.Thread(target=run_bot, daemon=True)
 _bot_thread.start()
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
